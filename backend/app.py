@@ -1,8 +1,8 @@
 from flask import Flask, request
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from transformers import pipeline
 import os
-import certifi
 
 # Load environment variables
 load_dotenv()
@@ -10,19 +10,17 @@ load_dotenv()
 # Create Flask app
 app = Flask(__name__)
 
-# Get MongoDB URI from .env
+# Load AI Sentiment Model
+sentiment_pipeline = pipeline("sentiment-analysis")
+
+# Get MongoDB URI
 mongo_uri = os.getenv("MONGO_URI")
 
-# Connect to MongoDB Atlas
-client = MongoClient(
-    mongo_uri,
-    tlsCAFile=certifi.where()
-)
+# Connect MongoDB Atlas
+client = MongoClient(mongo_uri)
 
-# Create/select database
+# Database and Collection
 db = client["mental_health_db"]
-
-# Create/select collection
 comments_collection = db["comments"]
 
 
@@ -30,36 +28,60 @@ comments_collection = db["comments"]
 @app.route("/")
 def home():
     return {
-        "message": "Backend + MongoDB Connected Successfully"
+        "message": "Mental Health AI Backend Running"
     }
 
 
-# Add Comment Route
-@app.route("/add_comment", methods=["POST"])
-def add_comment():
+# Analyze Comment with AI
+@app.route("/analyze_comment", methods=["POST"])
+def analyze_comment():
 
-    # Get JSON data from request
     data = request.json
 
-    # Create comment document
+    text = data["text"]
+
+    # AI Prediction
+    result = sentiment_pipeline(text)
+
+    sentiment = result[0]["label"]
+
+    # Create document
     comment = {
-        "text": data["text"],
-        "sentiment": data["sentiment"]
+        "text": text,
+        "sentiment": sentiment
     }
 
-    # Insert into MongoDB
+    # Save into MongoDB
     comments_collection.insert_one(comment)
 
-    # Return response
     return {
-        "message": "Comment added successfully",
+        "message": "Comment analyzed successfully",
         "data": {
-            "text": comment["text"],
-            "sentiment": comment["sentiment"]
+            "text": text,
+            "sentiment": sentiment
         }
     }
 
 
-# Run Flask Server
+# Get All Comments
+@app.route("/get_comments", methods=["GET"])
+def get_comments():
+
+    comments = []
+
+    for comment in comments_collection.find():
+
+        comments.append({
+            "id": str(comment["_id"]),
+            "text": comment["text"],
+            "sentiment": comment["sentiment"]
+        })
+
+    return {
+        "comments": comments
+    }
+
+
+# Run Flask App
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
